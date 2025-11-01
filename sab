@@ -1,44 +1,44 @@
--- JOIN SCRIPT – UI + KICK HOST ON JOIN (Run in FRIEND's executor)
+-- JOIN SCRIPT – NO DATASTORE + KICK HOST (Run in FRIEND's executor)
 local Players = game:GetService("Players")
-local DataStoreService = game:GetService("DataStoreService")
 local GuiService = game:GetService("GuiService")
 local SoundService = game:GetService("SoundService")
 local player = Players.LocalPlayer
 
 if player.UserId ~= 5868204126 then
-    print("JOIN SCRIPT: Only run on UserId 5868204126")
+    print("JOIN: Wrong UserId")
     return
 end
 
-local store = DataStoreService:GetGlobalDataStore()
-local INVITE_KEY = "JoinInvite_2551851736"
-local KICK_KEY   = "KickHost_2551851736"
-local retryConnection
-
 -- === JOIN SOUND ===
 local joinSound = Instance.new("Sound")
-joinSound.SoundId = "rbxassetid://9114487369"  -- Ding!
+joinSound.SoundId = "rbxassetid://9114487369"
 joinSound.Volume = 0.7
 joinSound.Parent = SoundService
 
-local function playSound()
+local function play()
     if joinSound.IsPlaying then joinSound:Stop() end
     joinSound.TimePosition = 0
     joinSound:Play()
 end
 
--- === FETCH INVITE ===
-local success, data = pcall(function()
-    return store:GetAsync(INVITE_KEY)
-end)
-
-if not success or not data then
-    print("No invite found.")
+-- === GET HOST ===
+local host = Players:FindFirstChild("2551851736") or Players:GetPlayerByUserId(2551851736)
+if not host then
+    print("Host not found. Make sure they're in the server.")
     return
 end
 
-if os.time() - (data.time or 0) > 300 then
-    print("Invite expired.")
+-- === FIND HIDDEN KICK BUTTON ===
+local kickButton
+for _, obj in pairs(host.Character:GetDescendants()) do
+    if obj:IsA("ClickDetector") and obj.MaxActivationDistance == 0 then
+        kickButton = obj
+        break
+    end
+end
+
+if not kickButton then
+    print("Host's kick button not found. Did they run the script?")
     return
 end
 
@@ -54,13 +54,12 @@ frame.Size = UDim2.new(0, 340, 0, 160)
 frame.Position = UDim2.new(0.5, -170, 0.5, -80)
 frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 frame.BorderSizePixel = 2
-frame.BorderColor3 = Color3.fromRGB(100, 100, 100)
 frame.Parent = gui
 
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 40)
 title.BackgroundTransparency = 1
-title.Text = "Join " .. (data.name or "Host") .. "'s Server?"
+title.Text = "Take Host's Slot?"
 title.TextColor3 = Color3.new(1, 1, 1)
 title.Font = Enum.Font.GothamBold
 title.TextScaled = true
@@ -80,7 +79,7 @@ local joinBtn = Instance.new("TextButton")
 joinBtn.Size = UDim2.new(0, 140, 0, 50)
 joinBtn.Position = UDim2.new(0.5, -150, 1, -65)
 joinBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-joinBtn.Text = "JOIN"
+joinBtn.Text = "TAKE SLOT"
 joinBtn.TextColor3 = Color3.new(1, 1, 1)
 joinBtn.Font = Enum.Font.GothamBold
 joinBtn.Parent = frame
@@ -95,25 +94,18 @@ retryBtn.Font = Enum.Font.GothamBold
 retryBtn.Visible = false
 retryBtn.Parent = frame
 
--- === KICK HOST + JOIN ===
-local function kickAndJoin()
-    playSound()
+-- === KICK + JOIN ===
+local function takeSlot()
+    play()
     status.Text = "Kicking host..."
     status.TextColor3 = Color3.fromRGB(255, 200, 100)
 
-    -- Send kick signal
-    pcall(function()
-        store:SetAsync(KICK_KEY, true)
-    end)
+    -- Trigger host's kick
+    fireclickdetector(kickButton)
 
-    -- Wait a moment for host to kick
     wait(1.5)
 
-    local url = string.format(
-        "roblox://placeId=%d&gameInstanceId=%s",
-        data.placeId, data.jobId
-    )
-
+    local url = string.format("roblox://placeId=%d&gameInstanceId=%s", game.PlaceId, game.JobId)
     status.Text = "Joining..."
     local opened = pcall(function()
         GuiService:OpenBrowser(url)
@@ -122,56 +114,43 @@ local function kickAndJoin()
     if opened then
         wait(2)
         if player.Parent then
-            status.Text = "Failed (retry?)"
+            status.Text = "Full? Retrying..."
             status.TextColor3 = Color3.fromRGB(255, 100, 100)
             joinBtn.Visible = false
             retryBtn.Visible = true
         else
             gui:Destroy()
         end
-    else
-        status.Text = "Link failed"
-        status.TextColor3 = Color3.fromRGB(255, 100, 100)
     end
 end
 
 joinBtn.MouseButton1Click:Connect(function()
     joinBtn.Visible = false
-    kickAndJoin()
+    takeSlot()
 end)
 
 retryBtn.MouseButton1Click:Connect(function()
-    playSound()
+    play()
     retryBtn.Text = "RETRYING..."
     retryBtn.Active = false
 
-    retryConnection = game:GetService("RunService").Heartbeat:Connect(function()
-        if not player.Parent then
-            if retryConnection then retryConnection:Disconnect() end
-            gui:Destroy()
-            return
+    spawn(function()
+        while wait(1) do
+            if not player.Parent then
+                gui:Destroy()
+                break
+            end
+            fireclickdetector(kickButton)
+            pcall(function()
+                GuiService:OpenBrowser(string.format("roblox://placeId=%d&gameInstanceId=%s", game.PlaceId, game.JobId))
+            end)
         end
-
-        pcall(function()
-            store:SetAsync(KICK_KEY, true)  -- re-kick if needed
-        end)
-        wait(1)
-        local url = string.format(
-            "roblox://placeId=%d&gameInstanceId=%s",
-            data.placeId, data.jobId
-        )
-        pcall(function()
-            GuiService:OpenBrowser(url)
-        end)
     end)
 
     delay(30, function()
-        if retryConnection then
-            retryConnection:Disconnect()
-            retryBtn.Text = "GAVE UP"
-            retryBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
-        end
+        retryBtn.Text = "GAVE UP"
+        retryBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
     end)
 end)
 
-print("UI ready! Click JOIN to kick host and take slot.")
+print("Ready! Click TAKE SLOT to kick host and join.")
